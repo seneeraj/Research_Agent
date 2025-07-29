@@ -1,82 +1,78 @@
 import streamlit as st
-from openai import OpenAI
-import requests
-from typing import List
+import openai
+import arxiv
 import time
 
-# ---- SETUP ----
-client = OpenAI(
+# Initialize OpenRouter API key from Streamlit secrets
+client = openai.OpenAI(
     api_key=st.secrets["OPENROUTER_API_KEY"],
     base_url="https://openrouter.ai/api/v1"
 )
 
-st.title("🔍 AI Research Agent: Literature Review Generator")
-st.write("Enter a research topic below. The agent will search papers, summarize, cluster, and generate a literature review.")
-
-# ---- INPUT ----
-topic = st.text_input("Enter your research topic:", "AI for climate modeling")
-submit = st.button("Generate Literature Review")
-
-# ---- FUNCTIONS ----
-def search_papers(query: str, max_results=5) -> List[str]:
-    # Dummy paper titles for now; in production use arXiv or Semantic Scholar API
-    return [
-        f"Recent Advances in {query} Using Deep Learning",
-        f"A Survey on {query} Applications",
-        f"Transformer Models Applied to {query}",
-        f"Satellite Data Fusion in {query}",
-        f"Challenges in {query} Forecasting with AI"
-    ]
-
-def summarize_paper(title: str) -> str:
-    prompt = f"""
-    Summarize the following research paper title in 3-4 sentences:
-    Title: {title}
-    Provide a concise summary highlighting methods, results, and relevance.
-    """
-    for attempt in range(3):
-        try:
-            response = client.chat.completions.create(
-                model="openrouter/openai/gpt-4o",
-                messages=[{"role": "user", "content": prompt}]
-            )
-            return response.choices[0].message.content.strip()
-        except Exception as e:
-            time.sleep(5)
-    return "⚠️ Could not summarize due to API limit or error."
-
-def synthesize_review(summaries: List[str], topic: str) -> str:
-    joined = "\n\n".join(summaries)
-    prompt = f"""
-    Create a literature review on the topic: {topic}.
-    Use the following paper summaries:
-    {joined}
-
-    Write a structured review with Introduction, Thematic Summary, and Conclusion.
-    """
-    response = client.chat.completions.create(
-        model="openai/gpt-4o",
-        messages=[{"role": "user", "content": prompt}]
+def search_papers(topic, max_results=5):
+    search = arxiv.Search(
+        query=topic,
+        max_results=max_results,
+        sort_by=arxiv.SortCriterion.Relevance
     )
-    return response.choices[0].message.content.strip()
+    results = []
+    for result in search.results():
+        results.append(result.title)
+    return results
 
-# ---- MAIN LOGIC ----
-if submit:
-    with st.spinner("🔎 Searching papers and generating summaries..."):
-        papers = search_papers(topic)
-        summaries = []
-        for title in papers:
-            summaries.append(summarize_paper(title))
-            time.sleep(2)  # avoid rate limit
+def summarize_paper(title):
+    prompt = f"Please summarize the main contributions and findings of a research paper titled: '{title}' in simple terms."
+    try:
+        response = client.chat.completions.create(
+            model="openrouter/openai/gpt-4o",
+            messages=[{"role": "user", "content": prompt}]
+        )
+        summary = response.choices[0].message.content.strip()
+        return summary
+    except Exception as e:
+        return f"Error summarizing: {str(e)}"
 
-    st.success("Summaries generated. Creating literature review...")
+def synthesize_review(summaries, topic):
+    joined_summaries = "\n\n".join(summaries)
+    prompt = (
+        f"Based on the following paper summaries about '{topic}', write a synthesized literature review suitable for a beginner researcher.\n\n"
+        f"{joined_summaries}"
+    )
+    try:
+        response = client.chat.completions.create(
+            model="openrouter/openai/gpt-4o",
+            messages=[{"role": "user", "content": prompt}]
+        )
+        review = response.choices[0].message.content.strip()
+        return review
+    except Exception as e:
+        return f"Error generating review: {str(e)}"
 
-    with st.spinner("🧠 Writing the review..."):
-        review = synthesize_review(summaries, topic)
+# Streamlit app UI
+st.set_page_config(page_title="Research Review Agent", layout="centered")
+st.title("🧠 AI Research Review Agent")
+st.write("Enter a research topic below and get a literature review synthesized from recent papers.")
 
-    st.subheader("📄 Literature Review")
-    st.markdown(review)
+topic = st.text_input("🔍 Enter your research topic:", "Large Language Models")
 
-    st.subheader("📚 Sources")
-    for paper in papers:
-        st.markdown(f"- {paper}")
+if st.button("Generate Review"):
+    if not topic.strip():
+        st.warning("Please enter a valid topic.")
+    else:
+        with st.spinner("🔎 Searching and analyzing papers..."):
+            papers = search_papers(topic)
+            summaries = []
+            for title in papers:
+                summary = summarize_paper(title)
+                summaries.append(summary)
+                time.sleep(2)  # Be kind to API limits
+
+            review = synthesize_review(summaries, topic)
+
+        st.subheader("📝 Synthesized Literature Review")
+        st.markdown(review)
+
+        st.subheader("📚 Paper Titles Summarized")
+        for i, title in enumerate(papers):
+            st.markdown(f"**{i+1}. {title}**")
+            st.markdown(summaries[i])
