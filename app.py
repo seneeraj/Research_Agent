@@ -1,95 +1,78 @@
 import streamlit as st
-import openai
-import requests
 import arxiv
+import openai
 
-# Title
-st.title("🧠 Research Paper Summarizer")
+# Load OpenRouter API Key
+openai.api_key = st.secrets["OPENROUTER_API_KEY"]
+openai.base_url = "https://openrouter.ai/api/v1"
 
-# Load API Key
-api_key = st.secrets["OPENROUTER_API_KEY"]
+st.set_page_config(page_title="Research Agent", layout="wide")
+st.title("🧠 Research Agent")
 
-# Set base URL and headers for OpenRouter
-base_url = "https://openrouter.ai/api/v1"
-headers = {"Authorization": f"Bearer {api_key}"}
+# Model options (you can dynamically fetch this too)
+available_models = [
+    "meta-llama/llama-3-8b-instruct",
+    "mistralai/mistral-7b-instruct",
+    "openchat/openchat-7b",
+    "mistralai/mixtral-8x7b-instruct"
+]
 
-# Get Available Models from OpenRouter
-@st.cache_data
-def get_available_models():
-    try:
-        response = requests.get(f"{base_url}/models", headers=headers)
-        response.raise_for_status()
-        models = response.json()["data"]
+# Sidebar input
+st.sidebar.title("🔍 Search Settings")
+topic = st.sidebar.text_input("Enter a research topic", value="Multilingual LLMs")
+selected_model = st.sidebar.selectbox("Choose an LLM", available_models)
+max_results = st.sidebar.slider("Number of papers", 1, 10, 5)
 
-        available_models = [
-            m["id"] for m in models
-            if "chat" in m.get("tags", []) or m.get("id", "").endswith("chat")
-        ]
-        if not available_models:
-            return ["meta-llama/llama-3-8b-instruct"]
-        return sorted(available_models)
-
-    except Exception as e:
-        print(f"⚠️ Model fetch error: {e}")
-        return ["meta-llama/llama-3-8b-instruct"]  # Fallback
-
-# Model selection dropdown
-model = st.selectbox("✅ Choose a working LLM from OpenRouter", get_available_models())
-
-# Paper search and summarization
-topic = st.text_input("🔍 Enter research topic:")
-num_papers = st.slider("📄 Number of papers to summarize:", 1, 10, 5)
-
+# Search Arxiv papers
+@st.cache_data(show_spinner=False)
 def search_papers(topic, max_results=5):
-    search = arxiv.Search(query=topic, max_results=max_results, sort_by=arxiv.SortCriterion.Relevance)
-    return [result.title for result in search.results()]
+    client = arxiv.Client(num_retries=3)
+    search = arxiv.Search(
+        query=topic,
+        max_results=max_results,
+        sort_by=arxiv.SortCriterion.Relevance
+    )
+    return list(client.results(search))
 
-def summarize_paper(title):
-    prompt = f"Summarize the research paper titled '{title}' in simple terms, highlighting the main contribution."
+# Summarize each paper
+def summarize_paper(title, abstract, model):
+    prompt = f"""Summarize the following academic paper in 3 concise bullet points:
+
+Title: {title}
+
+Abstract:
+{abstract}
+
+Format the response as:
+- Point 1
+- Point 2
+- Point 3"""
+
     try:
-        response = requests.post(
-            f"{base_url}/chat/completions",
-            headers={**headers, "Content-Type": "application/json"},
-            json={
-                "model": model,
-                "messages": [{"role": "user", "content": prompt}],
-            },
+        response = openai.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": prompt}]
         )
-        response.raise_for_status()
-        return response.json()["choices"][0]["message"]["content"]
+        return response.choices[0].message.content.strip()
     except Exception as e:
         return f"❌ Error summarizing: {e}"
 
-def synthesize_review(summaries, topic):
-    joined = "\n\n".join(summaries)
-    prompt = f"Based on the following summaries, write a concise literature review about '{topic}':\n\n{joined}"
-    try:
-        response = requests.post(
-            f"{base_url}/chat/completions",
-            headers={**headers, "Content-Type": "application/json"},
-            json={
-                "model": model,
-                "messages": [{"role": "user", "content": prompt}],
-            },
-        )
-        response.raise_for_status()
-        return response.json()["choices"][0]["message"]["content"]
-    except Exception as e:
-        return f"❌ Error generating review: {e}"
+# Run search
+if topic:
+    with st.spinner("🔎 Searching papers..."):
+        papers = search_papers(topic, max_results)
 
-# Main Execution
-if st.button("Generate Summaries"):
-    with st.spinner("⏳ Searching papers..."):
-        papers = search_papers(topic, num_papers)
+    if papers:
+        st.markdown("## 📚 Paper Titles Summarized")
+        for paper in papers:
+            title = paper.title.strip()
+            link = paper.entry_id
+            abstract = paper.summary.strip()
 
-    st.subheader("📚 Paper Titles Summarized")
-    summaries = []
-    for i, title in enumerate(papers, 1):
-        st.markdown(f"**{i}. {title}**")
-        summary = summarize_paper(title)
-        st.markdown(summary)
-        summaries.append(summary)
-
-    st.subheader("📝 Synthesized Literature Review")
-    review = synthesize_review(summaries, topic)
-    st.markdown(review)
+            st.markdown(f"### 🔗 [{title}]({link})")
+            with st.spinner(f"Summarizing: {title[:60]}..."):
+                summary = summarize_paper(title, abstract, selected_model)
+                st.markdown(summary)
+            st.markdown("---")
+    else:
+        st.warning("No papers found for that topic.")
