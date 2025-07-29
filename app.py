@@ -1,39 +1,42 @@
 import streamlit as st
 import openai
 import arxiv
+from openai import OpenAI
+import os
 
-# --- Load API Key from Streamlit Secrets ---
-client = openai.OpenAI(
-    api_key=st.secrets["OPENROUTER_API_KEY"],
-    base_url="https://openrouter.ai/api/v1"
+# Load OpenRouter API key securely from Streamlit secrets
+api_key = st.secrets["OPENROUTER_API_KEY"]
+
+# Initialize OpenAI client with OpenRouter base
+client = OpenAI(
+    api_key=api_key,
+    base_url="https://openrouter.ai/api/v1",
 )
 
-st.set_page_config(page_title="📚 Research Agent", layout="wide")
+st.title("🔬 Research Agent - Literature Review Generator")
 
-st.title("🧠 AI Research Agent")
-st.write("Search academic papers on a topic and generate a synthesized literature review using LLMs.")
+# Step 1: Get Research Topic
+topic = st.text_input("Enter your research topic:", "")
 
-# --- User Input ---
-topic = st.text_input("Enter a research topic:", value="Multilingual Large Language Models")
-
-model = st.selectbox("Choose a model (OpenRouter)", [
-    "openai/gpt-3.5-turbo",
-    "mistralai/mixtral-8x7b",
-    "google/gemini-pro",
-    "meta-llama/llama-3-8b-instruct"
+# Step 2: Choose Model
+st.markdown("💡 Currently only tested models are shown below. You can add others once verified.")
+model = st.selectbox("Choose an OpenRouter-supported model", [
+    "meta-llama/llama-3-8b-instruct",
+    "meta-llama/llama-2-70b-chat"
 ])
 
-num_papers = st.slider("Number of papers to summarize:", 1, 10, 5)
+# Function to search papers using arXiv
+def search_papers(topic):
+    search = arxiv.Search(
+        query=topic,
+        max_results=5,
+        sort_by=arxiv.SortCriterion.Relevance
+    )
+    return [result.title for result in search.results()]
 
-# --- Search arXiv ---
-@st.cache_data(show_spinner=False)
-def search_arxiv(topic, max_results):
-    search = arxiv.Search(query=topic, max_results=max_results, sort_by=arxiv.SortCriterion.Relevance)
-    return list(search.results())
-
-# --- Summarize Each Paper ---
-def summarize_paper(title, model):
-    prompt = f"Summarize the main contributions of the paper titled '{title}' in plain English."
+# Function to summarize a paper using the selected model
+def summarize_paper(title):
+    prompt = f"Summarize this research paper title in 3-4 bullet points, avoiding repetition:\n\n'{title}'"
     try:
         response = client.chat.completions.create(
             model=model,
@@ -41,12 +44,12 @@ def summarize_paper(title, model):
         )
         return response.choices[0].message.content
     except Exception as e:
-        return f"Error summarizing: {e}"
+        return f"❌ Error summarizing: {e}"
 
-# --- Combine Summaries into a Review ---
-def synthesize_review(summaries, topic, model):
+# Function to generate a synthesized review
+def synthesize_review(summaries, topic):
     joined = "\n\n".join(summaries)
-    prompt = f"Based on the following summaries of academic papers on the topic '{topic}', generate a clear and concise literature review:\n\n{joined}"
+    prompt = f"You are an AI researcher. Write a 300-word literature review about this topic: **{topic}**, using the following summaries:\n\n{joined}"
     try:
         response = client.chat.completions.create(
             model=model,
@@ -54,23 +57,21 @@ def synthesize_review(summaries, topic, model):
         )
         return response.choices[0].message.content
     except Exception as e:
-        return f"Error generating review: {e}"
+        return f"❌ Error generating review: {e}"
 
-# --- Run App ---
-if st.button("🔍 Search & Summarize"):
-    with st.spinner("🔎 Searching papers..."):
-        papers = search_arxiv(topic, num_papers)
+if st.button("🔍 Generate Literature Review"):
+    if topic:
+        with st.spinner("Searching for papers and generating summaries..."):
+            papers = search_papers(topic)
+            summaries = [summarize_paper(title) for title in papers]
+            review = synthesize_review(summaries, topic)
 
-    with st.spinner("✍️ Summarizing papers..."):
-        summaries = [summarize_paper(paper.title, model) for paper in papers]
+        st.subheader("📝 Synthesized Literature Review")
+        st.write(review)
 
-    with st.spinner("🧠 Synthesizing literature review..."):
-        review = synthesize_review(summaries, topic, model)
-
-    st.subheader("📝 Synthesized Literature Review")
-    st.write(review)
-
-    st.subheader("📚 Paper Titles Summarized")
-    for i, paper in enumerate(papers):
-        st.markdown(f"**{i+1}. {paper.title}**")
-        st.markdown(summaries[i])
+        st.subheader("📚 Paper Titles Summarized")
+        for i, (title, summary) in enumerate(zip(papers, summaries), 1):
+            st.markdown(f"**{i}. {title}**")
+            st.write(summary)
+    else:
+        st.warning("Please enter a topic.")
