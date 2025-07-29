@@ -1,40 +1,38 @@
 import streamlit as st
 import arxiv
-import openai
+import requests
 
-# Load OpenRouter API Key
-openai.api_key = st.secrets["OPENROUTER_API_KEY"]
-openai.base_url = "https://openrouter.ai/api/v1"
+# App title and description
+st.title("🔍 Research Paper Summarizer")
+st.write("Enter a research topic below and get summarized insights from recent arXiv papers.")
 
-st.set_page_config(page_title="Research Agent", layout="wide")
-st.title("🧠 Research Agent")
+# Sidebar for model selection
+st.sidebar.header("🔧 Options")
+model = st.sidebar.selectbox(
+    "Choose a model from OpenRouter",
+    options=[
+        "meta-llama/llama-3-8b-instruct",
+        "mistralai/mixtral-8x7b-instruct",
+        "openchat/openchat-3.5-1210",
+        "nousresearch/nous-capybara-7b",
+    ],
+    index=0
+)
 
-# Model options (you can dynamically fetch this too)
-available_models = [
-    "meta-llama/llama-3-8b-instruct",
-    "mistralai/mistral-7b-instruct",
-    "openchat/openchat-7b",
-    "mistralai/mixtral-8x7b-instruct"
-]
+# Search input
+topic = st.text_input("Enter your research topic", value="ethics in AI")
+search_button = st.button("🔍 Search Papers")
 
-# Sidebar input
-st.sidebar.title("🔍 Search Settings")
-topic = st.sidebar.text_input("Enter a research topic", value="Multilingual LLMs")
-selected_model = st.sidebar.selectbox("Choose an LLM", available_models)
-max_results = st.sidebar.slider("Number of papers", 1, 10, 5)
-
-# Search Arxiv papers
-@st.cache_data(show_spinner=False)
-def search_papers(topic, max_results=5):
-    client = arxiv.Client(num_retries=3)
-    search = arxiv.Search(
-        query=topic,
+# --- Function to search arXiv ---
+def search_arxiv_papers(query, max_results=5):
+    results = arxiv.Search(
+        query=query,
         max_results=max_results,
         sort_by=arxiv.SortCriterion.Relevance
-    )
-    return list(client.results(search))
+    ).results()
+    return list(results)
 
-# Summarize each paper
+# --- Function to call OpenRouter API ---
 def summarize_paper(title, abstract, model):
     prompt = f"""Summarize the following academic paper in 3 concise bullet points:
 
@@ -46,33 +44,43 @@ Abstract:
 Format the response as:
 - Point 1
 - Point 2
-- Point 3"""
+- Point 3
+"""
 
     try:
-        response = openai.chat.completions.create(
-            model=model,
-            messages=[{"role": "user", "content": prompt}]
+        response = requests.post(
+            "https://openrouter.ai/api/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {st.secrets['OPENROUTER_API_KEY']}",
+                "Content-Type": "application/json"
+            },
+            json={
+                "model": model,
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": 0.7
+            },
+            timeout=30
         )
-        return response.choices[0].message.content.strip()
+
+        data = response.json()
+        if "choices" in data:
+            return data["choices"][0]["message"]["content"]
+        else:
+            return f"❌ Error summarizing: {data.get('error', {}).get('message', 'Unknown error')}"
     except Exception as e:
-        return f"❌ Error summarizing: {e}"
+        return f"❌ Error summarizing: {str(e)}"
 
-# Run search
-if topic:
-    with st.spinner("🔎 Searching papers..."):
-        papers = search_papers(topic, max_results)
+# --- Main execution ---
+if search_button and topic:
+    st.info(f"🔎 Searching for papers related to: **{topic}**")
 
-    if papers:
-        st.markdown("## 📚 Paper Titles Summarized")
-        for paper in papers:
-            title = paper.title.strip()
-            link = paper.entry_id
-            abstract = paper.summary.strip()
-
-            st.markdown(f"### 🔗 [{title}]({link})")
-            with st.spinner(f"Summarizing: {title[:60]}..."):
-                summary = summarize_paper(title, abstract, selected_model)
-                st.markdown(summary)
-            st.markdown("---")
+    papers = search_arxiv_papers(topic)
+    
+    if not papers:
+        st.warning("No papers found. Try a different keyword.")
     else:
-        st.warning("No papers found for that topic.")
+        st.subheader("📚 Paper Summaries")
+        for i, paper in enumerate(papers, 1):
+            st.markdown(f"### 🔗 [{paper.title}]({paper.entry_id})")
+            summary = summarize_paper(paper.title, paper.summary, model)
+            st.markdown(summary)
