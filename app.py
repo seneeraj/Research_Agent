@@ -37,7 +37,7 @@ def summarize_paper(title: str) -> str:
     for attempt in range(3):
         try:
             response = client.chat.completions.create(
-                model="openai/gpt-4o",
+                model="openrouter/openai/gpt-4o",
                 messages=[{"role": "user", "content": prompt}]
             )
             return response.choices[0].message.content.strip()
