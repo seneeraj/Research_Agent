@@ -1,10 +1,10 @@
 import streamlit as st
-import openai
+from openai import OpenAI
 import requests
 from typing import List
 
 # ---- SETUP ----
-openai.api_key = st.secrets["OPENAI_API_KEY"]  # Store securely in Streamlit Secrets
+client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])  # Store securely in Streamlit Secrets
 
 st.title("🔍 AI Research Agent: Literature Review Generator")
 st.write("Enter a research topic below. The agent will search papers, summarize, cluster, and generate a literature review.")
@@ -30,7 +30,7 @@ def summarize_paper(title: str) -> str:
     Title: {title}
     Provide a concise summary highlighting methods, results, and relevance.
     """
-    response = openai.ChatCompletion.create(
+    response = client.chat.completions.create(
         model="gpt-4o",
         messages=[{"role": "user", "content": prompt}]
     )
@@ -45,7 +45,7 @@ def synthesize_review(summaries: List[str], topic: str) -> str:
 
     Write a structured review with Introduction, Thematic Summary, and Conclusion.
     """
-    response = openai.ChatCompletion.create(
+    response = client.chat.completions.create(
         model="gpt-4o",
         messages=[{"role": "user", "content": prompt}]
     )
