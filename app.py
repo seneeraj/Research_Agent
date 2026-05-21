@@ -15,9 +15,9 @@ st.set_page_config(
 # App Title
 # ---------------------------------------------------
 st.title("🔍 Research Paper Summarizer")
+
 st.write(
-    "Enter a research topic below and get summarized insights "
-    "from recent arXiv papers."
+    "Search research papers from arXiv and get AI-generated summaries."
 )
 
 # ---------------------------------------------------
@@ -26,7 +26,7 @@ st.write(
 st.sidebar.header("🔧 Options")
 
 model = st.sidebar.selectbox(
-    "Choose a model from OpenRouter",
+    "Choose AI Model",
     options=[
         "meta-llama/llama-3-8b-instruct",
         "mistralai/mixtral-8x7b-instruct",
@@ -44,9 +44,8 @@ max_results = st.sidebar.slider(
 )
 
 # ---------------------------------------------------
-# Supported Research Domains
+# Supported Research Topics
 # ---------------------------------------------------
-
 SUPPORTED_TOPICS = {
     "Artificial Intelligence": [
         "machine learning",
@@ -56,7 +55,8 @@ SUPPORTED_TOPICS = {
         "computer vision",
         "nlp",
         "reinforcement learning",
-        "ai ethics"
+        "ai ethics",
+        "artificial intelligence"
     ],
 
     "Cybersecurity": [
@@ -64,14 +64,16 @@ SUPPORTED_TOPICS = {
         "network security",
         "phishing",
         "cyber attacks",
-        "cryptography"
+        "cryptography",
+        "cybersecurity"
     ],
 
     "Healthcare AI": [
         "medical imaging",
         "cancer detection",
         "drug discovery",
-        "healthcare analytics"
+        "healthcare analytics",
+        "healthcare ai"
     ],
 
     "Robotics": [
@@ -94,10 +96,16 @@ SUPPORTED_TOPICS = {
     ]
 }
 
+# ---------------------------------------------------
+# Show Supported Topics
+# ---------------------------------------------------
+with st.expander("📚 Supported Research Topics"):
 
+    for category, keywords in SUPPORTED_TOPICS.items():
 
+        st.markdown(f"### {category}")
 
-
+        st.write(", ".join(keywords))
 
 # ---------------------------------------------------
 # Search Input
@@ -110,9 +118,26 @@ topic = st.text_input(
 search_button = st.button("🔍 Search Papers")
 
 # ---------------------------------------------------
-# Function to Search arXiv Papers
+# Validate Topic
+# ---------------------------------------------------
+def is_topic_supported(user_topic):
+
+    user_topic = user_topic.lower().strip()
+
+    for category, keywords in SUPPORTED_TOPICS.items():
+
+        for keyword in keywords:
+
+            if keyword in user_topic:
+                return True
+
+    return False
+
+# ---------------------------------------------------
+# Search arXiv Papers
 # ---------------------------------------------------
 def search_arxiv_papers(query, max_results=5):
+
     try:
         client = arxiv.Client()
 
@@ -123,16 +148,20 @@ def search_arxiv_papers(query, max_results=5):
         )
 
         results = list(client.results(search))
+
         return results
 
     except Exception as e:
+
         st.error(f"❌ Error fetching papers: {str(e)}")
+
         return []
 
 # ---------------------------------------------------
-# Function to Summarize Paper
+# Summarize Paper using OpenRouter
 # ---------------------------------------------------
 def summarize_paper(title, abstract, model):
+
     prompt = f"""
 Summarize the following academic paper in 3 concise bullet points.
 
@@ -149,12 +178,15 @@ Format:
 """
 
     try:
+
         response = requests.post(
             "https://openrouter.ai/api/v1/chat/completions",
+
             headers={
                 "Authorization": f"Bearer {st.secrets['OPENROUTER_API_KEY']}",
                 "Content-Type": "application/json"
             },
+
             json={
                 "model": model,
                 "messages": [
@@ -165,44 +197,86 @@ Format:
                 ],
                 "temperature": 0.5
             },
+
             timeout=60
         )
 
-        # Check status code
         if response.status_code != 200:
-            return f"❌ API Error ({response.status_code}): {response.text}"
+
+            return (
+                f"❌ API Error ({response.status_code}): "
+                f"{response.text}"
+            )
 
         data = response.json()
 
         if "choices" in data and len(data["choices"]) > 0:
+
             return data["choices"][0]["message"]["content"]
 
-        return "❌ No summary returned from model."
+        return "❌ No summary returned from AI model."
 
     except requests.exceptions.Timeout:
+
         return "❌ Request timed out."
 
     except Exception as e:
-        return f"❌ Error summarizing: {str(e)}"
+
+        return f"❌ Error summarizing paper: {str(e)}"
 
 # ---------------------------------------------------
 # Main Execution
 # ---------------------------------------------------
 if search_button:
 
+    # Empty topic validation
     if not topic.strip():
-        st.warning("Please enter a research topic.")
+
+        st.warning("⚠ Please enter a research topic.")
+
         st.stop()
 
-    st.info(f"🔎 Searching for papers related to: **{topic}**")
+    # Scope validation
+    if not is_topic_supported(topic):
 
+        st.error(
+            "❌ This topic is currently out of scope for this application."
+        )
+
+        st.info(
+            "Please search within supported research domains listed below."
+        )
+
+        st.subheader("📚 Supported Topics")
+
+        for category, keywords in SUPPORTED_TOPICS.items():
+
+            st.markdown(f"### {category}")
+
+            st.write(", ".join(keywords))
+
+        st.stop()
+
+    # Search status
+    st.info(
+        f"🔎 Searching for papers related to: **{topic}**"
+    )
+
+    # Fetch papers
     with st.spinner("Fetching papers from arXiv..."):
+
         papers = search_arxiv_papers(topic, max_results)
 
+    # No papers found
     if not papers:
-        st.warning("No papers found. Try a different keyword.")
 
+        st.warning(
+            "⚠ No papers found on arXiv for this topic."
+        )
+
+    # Display results
     else:
+
         st.success(f"✅ Found {len(papers)} papers")
 
         st.subheader("📚 Paper Summaries")
@@ -231,9 +305,11 @@ if search_button:
                 )
 
                 with st.expander("📖 View Abstract"):
+
                     st.write(paper.summary)
 
                 with st.spinner("Generating AI summary..."):
+
                     summary = summarize_paper(
                         paper.title,
                         paper.summary,
@@ -241,6 +317,7 @@ if search_button:
                     )
 
                 st.markdown("### 🧠 AI Summary")
+
                 st.markdown(summary)
 
                 st.markdown(
@@ -251,6 +328,7 @@ if search_button:
 # Footer
 # ---------------------------------------------------
 st.markdown("---")
+
 st.caption(
     "Built with Streamlit, arXiv API, and OpenRouter AI"
 )
