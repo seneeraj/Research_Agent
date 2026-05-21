@@ -44,6 +44,62 @@ max_results = st.sidebar.slider(
 )
 
 # ---------------------------------------------------
+# Supported Research Domains
+# ---------------------------------------------------
+
+SUPPORTED_TOPICS = {
+    "Artificial Intelligence": [
+        "machine learning",
+        "deep learning",
+        "generative ai",
+        "llm",
+        "computer vision",
+        "nlp",
+        "reinforcement learning",
+        "ai ethics"
+    ],
+
+    "Cybersecurity": [
+        "malware detection",
+        "network security",
+        "phishing",
+        "cyber attacks",
+        "cryptography"
+    ],
+
+    "Healthcare AI": [
+        "medical imaging",
+        "cancer detection",
+        "drug discovery",
+        "healthcare analytics"
+    ],
+
+    "Robotics": [
+        "robotics",
+        "autonomous systems",
+        "robot navigation"
+    ],
+
+    "Mathematics": [
+        "statistics",
+        "probability",
+        "linear algebra",
+        "optimization"
+    ],
+
+    "Physics": [
+        "quantum computing",
+        "astrophysics",
+        "particle physics"
+    ]
+}
+
+
+
+
+
+
+# ---------------------------------------------------
 # Search Input
 # ---------------------------------------------------
 topic = st.text_input(
