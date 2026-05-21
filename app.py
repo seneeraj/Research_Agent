@@ -2,12 +2,29 @@ import streamlit as st
 import arxiv
 import requests
 
-# App title and description
-st.title("🔍 Research Paper Summarizer")
-st.write("Enter a research topic below and get summarized insights from recent arXiv papers.")
+# ---------------------------------------------------
+# Page Configuration
+# ---------------------------------------------------
+st.set_page_config(
+    page_title="Research Paper Summarizer",
+    page_icon="🔍",
+    layout="wide"
+)
 
-# Sidebar for model selection
+# ---------------------------------------------------
+# App Title
+# ---------------------------------------------------
+st.title("🔍 Research Paper Summarizer")
+st.write(
+    "Enter a research topic below and get summarized insights "
+    "from recent arXiv papers."
+)
+
+# ---------------------------------------------------
+# Sidebar
+# ---------------------------------------------------
 st.sidebar.header("🔧 Options")
+
 model = st.sidebar.selectbox(
     "Choose a model from OpenRouter",
     options=[
@@ -19,29 +36,57 @@ model = st.sidebar.selectbox(
     index=0
 )
 
-# Search input
-topic = st.text_input("Enter your research topic", value="ethics in AI")
+max_results = st.sidebar.slider(
+    "Number of papers",
+    min_value=1,
+    max_value=10,
+    value=5
+)
+
+# ---------------------------------------------------
+# Search Input
+# ---------------------------------------------------
+topic = st.text_input(
+    "Enter your research topic",
+    value="ethics in AI"
+)
+
 search_button = st.button("🔍 Search Papers")
 
-# --- Function to search arXiv ---
+# ---------------------------------------------------
+# Function to Search arXiv Papers
+# ---------------------------------------------------
 def search_arxiv_papers(query, max_results=5):
-    results = arxiv.Search(
-        query=query,
-        max_results=max_results,
-        sort_by=arxiv.SortCriterion.Relevance
-    ).results()
-    return list(results)
+    try:
+        client = arxiv.Client()
 
-# --- Function to call OpenRouter API ---
+        search = arxiv.Search(
+            query=query,
+            max_results=max_results,
+            sort_by=arxiv.SortCriterion.Relevance
+        )
+
+        results = list(client.results(search))
+        return results
+
+    except Exception as e:
+        st.error(f"❌ Error fetching papers: {str(e)}")
+        return []
+
+# ---------------------------------------------------
+# Function to Summarize Paper
+# ---------------------------------------------------
 def summarize_paper(title, abstract, model):
-    prompt = f"""Summarize the following academic paper in 3 concise bullet points:
+    prompt = f"""
+Summarize the following academic paper in 3 concise bullet points.
 
-Title: {title}
+Title:
+{title}
 
 Abstract:
 {abstract}
 
-Format the response as:
+Format:
 - Point 1
 - Point 2
 - Point 3
@@ -56,31 +101,100 @@ Format the response as:
             },
             json={
                 "model": model,
-                "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0.7
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": prompt
+                    }
+                ],
+                "temperature": 0.5
             },
-            timeout=30
+            timeout=60
         )
 
+        # Check status code
+        if response.status_code != 200:
+            return f"❌ API Error ({response.status_code}): {response.text}"
+
         data = response.json()
-        if "choices" in data:
+
+        if "choices" in data and len(data["choices"]) > 0:
             return data["choices"][0]["message"]["content"]
-        else:
-            return f"❌ Error summarizing: {data.get('error', {}).get('message', 'Unknown error')}"
+
+        return "❌ No summary returned from model."
+
+    except requests.exceptions.Timeout:
+        return "❌ Request timed out."
+
     except Exception as e:
         return f"❌ Error summarizing: {str(e)}"
 
-# --- Main execution ---
-if search_button and topic:
+# ---------------------------------------------------
+# Main Execution
+# ---------------------------------------------------
+if search_button:
+
+    if not topic.strip():
+        st.warning("Please enter a research topic.")
+        st.stop()
+
     st.info(f"🔎 Searching for papers related to: **{topic}**")
 
-    papers = search_arxiv_papers(topic)
-    
+    with st.spinner("Fetching papers from arXiv..."):
+        papers = search_arxiv_papers(topic, max_results)
+
     if not papers:
         st.warning("No papers found. Try a different keyword.")
+
     else:
+        st.success(f"✅ Found {len(papers)} papers")
+
         st.subheader("📚 Paper Summaries")
+
         for i, paper in enumerate(papers, 1):
-            st.markdown(f"### 🔗 [{paper.title}]({paper.entry_id})")
-            summary = summarize_paper(paper.title, paper.summary, model)
-            st.markdown(summary)
+
+            with st.container():
+
+                st.markdown("---")
+
+                st.markdown(f"## 📄 Paper {i}")
+
+                st.markdown(
+                    f"### 🔗 [{paper.title}]({paper.entry_id})"
+                )
+
+                authors = ", ".join(
+                    [author.name for author in paper.authors]
+                )
+
+                st.write(f"**👨‍🔬 Authors:** {authors}")
+
+                st.write(
+                    f"**📅 Published:** "
+                    f"{paper.published.strftime('%d %b %Y')}"
+                )
+
+                with st.expander("📖 View Abstract"):
+                    st.write(paper.summary)
+
+                with st.spinner("Generating AI summary..."):
+                    summary = summarize_paper(
+                        paper.title,
+                        paper.summary,
+                        model
+                    )
+
+                st.markdown("### 🧠 AI Summary")
+                st.markdown(summary)
+
+                st.markdown(
+                    f"📥 [Download PDF]({paper.pdf_url})"
+                )
+
+# ---------------------------------------------------
+# Footer
+# ---------------------------------------------------
+st.markdown("---")
+st.caption(
+    "Built with Streamlit, arXiv API, and OpenRouter AI"
+)
